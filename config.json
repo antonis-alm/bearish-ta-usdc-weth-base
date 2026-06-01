@@ -1,0 +1,50 @@
+{
+    "chain": "base",
+    "protocol": "uniswap_v3",
+    "base_token": "WETH",
+    "quote_token": "USDC",
+    "indicator_timeframe": "1h",
+    "trade_size_usd": 5,
+    "max_slippage_bps": 75,
+    "max_price_impact": "0.20",
+    "min_trade_value_usd": "3",
+    "max_gas_ratio": "0.12",
+    "rsi_period": 14,
+    "rsi_entry": 24,
+    "rsi_exit": 55,
+    "macd_fast_period": 12,
+    "macd_slow_period": 26,
+    "macd_signal_period": 9,
+    "macd_bullish_hist_threshold": "0",
+    "macd_bearish_hist_threshold": "0",
+    "use_bollinger_filter": true,
+    "bb_period": 20,
+    "bb_std_dev": 2.0,
+    "bb_entry_percent_b": "0.15",
+    "take_profit_pct": "0.02",
+    "stop_loss_pct": "0.01",
+    "max_holding_hours": "8",
+    "min_base_position_usd": "3",
+    "force_action": "",
+    "token_funding": [
+        {
+            "symbol": "WETH",
+            "address": "0x4200000000000000000000000000000000000006",
+            "chain": "base",
+            "amount": "10",
+            "amount_type": "usd"
+        },
+        {
+            "symbol": "USDC",
+            "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            "chain": "base",
+            "amount": "10",
+            "amount_type": "usd"
+        }
+    ],
+    "anvil_funding": {
+        "ETH": 10,
+        "WETH": 2,
+        "USDC": 10000
+    }
+}

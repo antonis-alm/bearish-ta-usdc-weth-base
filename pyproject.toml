@@ -1,0 +1,10 @@
+[project]
+name = "bearish_ta_usdc_weth_base"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "almanak>=2.16.1rc12",
+]
+
+[tool.almanak.run]
+interval = 60
