@@ -126,17 +126,54 @@ class BearishTaUsdcWethBaseStrategy(IntentStrategy):
         if has_base_position and self._entry_price is None:
             self._entry_price = base_price
 
+        rsi_value = Decimal(rsi.value)
+        macd_hist = Decimal(macd.histogram)
+
         if has_base_position:
             return self._maybe_exit_position(
                 market=market,
                 base_price=base_price,
-                rsi_value=Decimal(rsi.value),
-                macd_hist=Decimal(macd.histogram),
+                rsi_value=rsi_value,
+                macd_hist=macd_hist,
             )
 
-        entry_signal = Decimal(rsi.value) <= self.rsi_entry and Decimal(macd.histogram) >= self.macd_bullish_hist_threshold
+        rsi_entry_met = rsi_value <= self.rsi_entry
+        macd_entry_met = macd_hist >= self.macd_bullish_hist_threshold
+        bb_entry_met = True
+        bb_percent_b = None
         if bb_data is not None:
-            entry_signal = entry_signal and Decimal(bb_data.percent_b) <= self.bb_entry_percent_b
+            bb_percent_b = Decimal(bb_data.percent_b)
+            bb_entry_met = bb_percent_b <= self.bb_entry_percent_b
+
+        self._log_trigger_check(
+            title="Entry trigger evaluation",
+            lines=[
+                self._format_trigger_line(
+                    name="RSI",
+                    value=rsi_value,
+                    comparator="<=",
+                    threshold=self.rsi_entry,
+                    met=rsi_entry_met,
+                ),
+                self._format_trigger_line(
+                    name="MACD histogram",
+                    value=macd_hist,
+                    comparator=">=",
+                    threshold=self.macd_bullish_hist_threshold,
+                    met=macd_entry_met,
+                ),
+                self._format_trigger_line(
+                    name="Bollinger %B",
+                    value=bb_percent_b,
+                    comparator="<=",
+                    threshold=self.bb_entry_percent_b,
+                    met=bb_entry_met,
+                    enabled=bb_data is not None,
+                ),
+            ],
+        )
+
+        entry_signal = rsi_entry_met and macd_entry_met and bb_entry_met
 
         if not entry_signal:
             self._last_signal = "NO_ENTRY"
@@ -172,22 +209,79 @@ class BearishTaUsdcWethBaseStrategy(IntentStrategy):
     ) -> Intent:
         exit_reasons: list[str] = []
 
+        stop_loss_threshold = None
+        take_profit_threshold = None
+        stop_loss_met = False
+        take_profit_met = False
         if self._entry_price is not None and self._entry_price > 0:
-            if base_price <= self._entry_price * (Decimal("1") - self.stop_loss_pct):
+            stop_loss_threshold = self._entry_price * (Decimal("1") - self.stop_loss_pct)
+            take_profit_threshold = self._entry_price * (Decimal("1") + self.take_profit_pct)
+            stop_loss_met = base_price <= stop_loss_threshold
+            take_profit_met = base_price >= take_profit_threshold
+            if stop_loss_met:
                 exit_reasons.append("stop_loss")
-            if base_price >= self._entry_price * (Decimal("1") + self.take_profit_pct):
+            if take_profit_met:
                 exit_reasons.append("take_profit")
 
+        elapsed_hours = None
+        max_holding_met = False
         if self._entry_timestamp is not None:
             elapsed_seconds = (market.timestamp - self._entry_timestamp).total_seconds()
             elapsed_hours = Decimal(str(elapsed_seconds)) / Decimal("3600")
-            if elapsed_hours >= self.max_holding_hours:
+            max_holding_met = elapsed_hours >= self.max_holding_hours
+            if max_holding_met:
                 exit_reasons.append("max_holding_time")
 
-        if rsi_value >= self.rsi_exit:
+        rsi_exit_met = rsi_value >= self.rsi_exit
+        macd_bearish_met = macd_hist <= self.macd_bearish_hist_threshold
+        if rsi_exit_met:
             exit_reasons.append("rsi_exit")
-        if macd_hist <= self.macd_bearish_hist_threshold:
+        if macd_bearish_met:
             exit_reasons.append("macd_bearish")
+
+        self._log_trigger_check(
+            title="Exit trigger evaluation",
+            lines=[
+                self._format_trigger_line(
+                    name="RSI",
+                    value=rsi_value,
+                    comparator=">=",
+                    threshold=self.rsi_exit,
+                    met=rsi_exit_met,
+                ),
+                self._format_trigger_line(
+                    name="MACD histogram",
+                    value=macd_hist,
+                    comparator="<=",
+                    threshold=self.macd_bearish_hist_threshold,
+                    met=macd_bearish_met,
+                ),
+                self._format_trigger_line(
+                    name="Price vs stop-loss",
+                    value=base_price,
+                    comparator="<=",
+                    threshold=stop_loss_threshold,
+                    met=stop_loss_met,
+                    enabled=stop_loss_threshold is not None,
+                ),
+                self._format_trigger_line(
+                    name="Price vs take-profit",
+                    value=base_price,
+                    comparator=">=",
+                    threshold=take_profit_threshold,
+                    met=take_profit_met,
+                    enabled=take_profit_threshold is not None,
+                ),
+                self._format_trigger_line(
+                    name="Holding time (hours)",
+                    value=elapsed_hours,
+                    comparator=">=",
+                    threshold=self.max_holding_hours,
+                    met=max_holding_met,
+                    enabled=elapsed_hours is not None,
+                ),
+            ],
+        )
 
         if not exit_reasons:
             self._last_signal = "HOLD_BASE"
@@ -234,6 +328,27 @@ class BearishTaUsdcWethBaseStrategy(IntentStrategy):
             chain=self.chain,
             max_gas_ratio=self.max_gas_ratio,
         )
+
+    def _log_trigger_check(self, *, title: str, lines: list[str]) -> None:
+        logger.info("%s\n%s", title, "\n".join(lines))
+
+    def _format_trigger_line(
+        self,
+        *,
+        name: str,
+        value: Decimal | None,
+        comparator: str,
+        threshold: Decimal | None,
+        met: bool,
+        enabled: bool = True,
+    ) -> str:
+        if not enabled:
+            return f"- {name}: not used"
+
+        value_text = str(value) if value is not None else "N/A"
+        threshold_text = str(threshold) if threshold is not None else "N/A"
+        status = "met" if met else "not met"
+        return f"- {name}: value={value_text}, trigger={comparator} {threshold_text} -> {status}"
 
     def _max_slippage(self) -> Decimal:
         return Decimal(str(self.max_slippage_bps)) / Decimal("10000")
